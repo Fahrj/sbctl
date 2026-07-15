@@ -127,11 +127,11 @@ func (k *KeyHierarchy) RotateKeyWithBackend(hier hierarchy.Hierarchy, backend Ba
 	var err error
 	switch hier {
 	case hierarchy.PK:
-		k.PK, err = createKey(k.state, string(backend), hier, k.PK.Description())
+		k.PK, err = createKey(k.state, k.state.Config.Keys.PK, hier)
 	case hierarchy.KEK:
-		k.KEK, err = createKey(k.state, string(backend), hier, k.KEK.Description())
+		k.KEK, err = createKey(k.state, k.state.Config.Keys.KEK, hier)
 	case hierarchy.Db:
-		k.Db, err = createKey(k.state, string(backend), hier, k.Db.Description())
+		k.Db, err = createKey(k.state, k.state.Config.Keys.Db, hier)
 	}
 	return err
 }
@@ -190,11 +190,12 @@ func (k *KeyHierarchy) SignFile(hier hierarchy.Hierarchy, peBinary *authenticode
 	return peBinary.Bytes(), nil
 }
 
-func createKey(state *config.State, backend string, hier hierarchy.Hierarchy, desc string) (KeyBackend, error) {
+func createKey(state *config.State, key *config.KeyConfig, hier hierarchy.Hierarchy) (KeyBackend, error) {
+	desc := key.Description
 	if desc == "" {
 		desc = hier.Description()
 	}
-	switch backend {
+	switch key.Type {
 	case "file", "":
 		return NewFileKey(hier, desc)
 	case "tpm":
@@ -211,17 +212,17 @@ func CreateKeys(state *config.State) (*KeyHierarchy, error) {
 	var err error
 
 	c := state.Config
-	hier.PK, err = createKey(state, c.Keys.PK.Type, hierarchy.PK, c.Keys.PK.Description)
+	hier.PK, err = createKey(state, c.Keys.PK, hierarchy.PK)
 	if err != nil {
 		return nil, err
 	}
 
-	hier.KEK, err = createKey(state, c.Keys.KEK.Type, hierarchy.KEK, c.Keys.KEK.Description)
+	hier.KEK, err = createKey(state, c.Keys.KEK, hierarchy.KEK)
 	if err != nil {
 		return nil, err
 	}
 
-	hier.Db, err = createKey(state, c.Keys.Db.Type, hierarchy.Db, c.Keys.Db.Description)
+	hier.Db, err = createKey(state, c.Keys.Db, hierarchy.Db)
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/foxboron/sbctl/config"
@@ -42,6 +43,9 @@ type Yubikey struct {
 }
 
 func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy, keyConfig *config.KeyConfig) (*Yubikey, error) {
+
+	logging.Println(fmt.Sprintf("\nCreating %s (%s) key...", hier.Description(), hier.String()))
+
 	cert, err := yubikeyReader.GetPIVKeyCert()
 	if err != nil {
 		if !errors.Is(err, piv.ErrNotFound) {
@@ -107,16 +111,10 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		SignatureAlgorithm: x509.SHA256WithRSA,
 		NotBefore:          time.Now(),
 		NotAfter:           time.Now().AddDate(20, 0, 0),
-		Subject: pkix.Name{
-			Country:    []string{hier.Description()},
-			CommonName: hier.Description(),
-		},
+		Subject:            parseSubject(keyConfig.Subject, hier),
 	}
 
-	logging.Println(fmt.Sprintf("Creating %s (%s) key...\nPlease press Yubikey to confirm presence for RSA4096 MD5: %x",
-		hier.Description(),
-		hier.String(),
-		md5sum(ykCert.PublicKey)))
+	logging.Println(fmt.Sprintf("Please press Yubikey to confirm presence for RSA4096 MD5: %x", md5sum(ykCert.PublicKey)))
 	derBytes, err := x509.CreateCertificate(rand.Reader, &c, &c, ykCert.PublicKey, priv)
 	if err != nil {
 		return nil, err
@@ -214,4 +212,56 @@ func md5sum(key crypto.PublicKey) []byte {
 	h := md5.New()
 	h.Write(x509.MarshalPKCS1PublicKey(key.(*rsa.PublicKey)))
 	return h.Sum(nil)
+}
+
+func parseSubject(subj string, hier hierarchy.Hierarchy) pkix.Name {
+	var subject pkix.Name
+
+	if subj != "" {
+		subject = pkix.Name{}
+
+		fields := strings.SplitSeq(subj, "/")
+		for field := range fields {
+			if field == "" {
+				continue
+			}
+			kv := strings.SplitN(field, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			key := strings.ToUpper(strings.TrimSpace(kv[0]))
+			value := strings.TrimSpace(kv[1])
+
+			switch key {
+			case "C":
+				subject.Country = append(subject.Country, value)
+			case "O":
+				subject.Organization = append(subject.Organization, value)
+			case "OU":
+				subject.OrganizationalUnit = append(subject.OrganizationalUnit, value)
+			case "L":
+				subject.Locality = append(subject.Locality, value)
+			case "ST":
+				subject.Province = append(subject.Province, value)
+			case "CN":
+				subject.CommonName = value
+			case "SERIALNUMBER":
+				subject.SerialNumber = value
+			default:
+			}
+		}
+
+		// Basic sanity: CN must be supplied
+		if subject.CommonName == "" {
+			panic("yubikey: subject missing common name")
+		}
+	} else {
+		// return default
+		subject = pkix.Name{
+			Country:    []string{"WW"},
+			CommonName: hier.Description(),
+		}
+	}
+
+	return subject
 }

@@ -32,6 +32,7 @@ type KeyConfig struct {
 	Privkey     string `json:"privkey"`
 	Pubkey      string `json:"pubkey"`
 	Type        string `json:"type"`
+	Subject     string `json:"subject,omitempty"`
 	Description string `json:"description,omitempty"`
 }
 

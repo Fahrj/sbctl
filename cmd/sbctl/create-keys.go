@@ -21,6 +21,9 @@ var (
 	KEKKeytype       string
 	DbKeytype        string
 	PKKeytype        string
+	PKSubject        string
+	KEKSubject       string
+	DbSubject        string
 	OverwriteYubikey bool
 )
 
@@ -80,6 +83,10 @@ func RunCreateKeys(state *config.State) error {
 		}
 	}
 
+	state.Config.Keys.PK.Subject = PKSubject
+	state.Config.Keys.KEK.Subject = KEKSubject
+	state.Config.Keys.Db.Subject = DbSubject
+
 	// if any keytype is yubikey close it appropriately at the end
 	if Keytype == "yubikey" || PKKeytype == "yubikey" || KEKKeytype == "yubikey" || DbKeytype == "yubikey" {
 		defer state.Yubikey.Close()
@@ -117,6 +124,9 @@ func createKeysCmdFlags(cmd *cobra.Command) {
 	f.StringVarP(&PKKeytype, "pk-keytype", "", "", "PK key type (default: file)")
 	f.StringVarP(&KEKKeytype, "kek-keytype", "", "", "KEK key type (default: file)")
 	f.StringVarP(&DbKeytype, "db-keytype", "", "", "db key type (default: file)")
+	f.StringVarP(&PKSubject, "pk-subj", "", "", "Subject DN for Platform Key certificate (default: /CN=Platform Key/C=WW/)")
+	f.StringVarP(&KEKSubject, "kek-subj", "", "", "Subject DN for Key Exchange Key certificate (default: /CN=Key Exchange Key/C=WW/)")
+	f.StringVarP(&DbSubject, "db-subj", "", "", "Subject DN for Database Key certificate (default: /CN=Database Key/C=WW/)")
 }
 
 func init() {

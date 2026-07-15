@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/foxboron/go-uefi/authenticode"
 	"github.com/foxboron/go-uefi/efivar"
@@ -195,13 +196,13 @@ func createKey(state *config.State, key *config.KeyConfig, hier hierarchy.Hierar
 	if desc == "" {
 		desc = hier.Description()
 	}
-	switch key.Type {
-	case "file", "":
+	switch {
+	case key.Type == "file":
 		return NewFileKey(hier, desc)
-	case "tpm":
+	case key.Type == "tpm":
 		return NewTPMKey(state.TPM, desc)
-	case "yubikey":
-		return NewYubikeyKey(state.Yubikey, hier)
+	case strings.HasPrefix(key.Type, "yubikey"):
+		return NewYubikeyKey(state.Yubikey, hier, key.Type)
 	default:
 		return NewFileKey(hier, desc)
 	}

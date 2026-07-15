@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/foxboron/sbctl/config"
@@ -40,7 +41,9 @@ type Yubikey struct {
 	touchPolicy   piv.TouchPolicy
 }
 
-func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy) (*Yubikey, error) {
+func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy, keyType string) (*Yubikey, error) {
+	// algorithm, slotNumber := splitYubiKeyType(keyType)
+
 	cert, err := yubikeyReader.GetPIVKeyCert()
 	if err != nil {
 		if !errors.Is(err, piv.ErrNotFound) {
@@ -206,4 +209,17 @@ func md5sum(key crypto.PublicKey) []byte {
 	pubKey, _ := x509.MarshalPKIXPublicKey(key)
 	h.Write(pubKey)
 	return h.Sum(nil)
+}
+
+func splitYubiKeyType(keyType string) (string, string) {
+	arr := strings.SplitN(keyType, ":", 3)
+
+	switch len(arr) {
+	case 2:
+		return arr[1], piv.SlotSignature.String()
+	case 3:
+		return arr[1], arr[2]
+	default:
+		return "RSA4096", piv.SlotSignature.String()
+	}
 }

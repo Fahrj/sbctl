@@ -201,7 +201,7 @@ func CreateKey(state *config.State, key *config.KeyConfig, hier hierarchy.Hierar
 	case "tpm":
 		return NewTPMKey(state.TPM, desc)
 	case "yubikey":
-		return NewYubikeyKey(state.Yubikey, hier)
+		return NewYubikeyKey(state.Yubikey, hier, key)
 	default:
 		return NewFileKey(hier, desc)
 	}

@@ -41,7 +41,7 @@ type Yubikey struct {
 	touchPolicy   piv.TouchPolicy
 }
 
-func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy) (*Yubikey, error) {
+func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy, keyConfig *config.KeyConfig) (*Yubikey, error) {
 	cert, err := yubikeyReader.GetPIVKeyCert()
 	if err != nil {
 		if !errors.Is(err, piv.ErrNotFound) {

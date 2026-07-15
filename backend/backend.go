@@ -230,7 +230,7 @@ func CreateKeys(state *config.State) (*KeyHierarchy, error) {
 	return &hier, nil
 }
 
-func readKey(state *config.State, keydir string, kc *config.KeyConfig, hier hierarchy.Hierarchy) (KeyBackend, error) {
+func readKey(state *config.State, keydir string, hier hierarchy.Hierarchy) (KeyBackend, error) {
 	path := filepath.Join(keydir, hier.String())
 	keyname := filepath.Join(path, fmt.Sprintf("%s.key", hier.String()))
 	certname := filepath.Join(path, fmt.Sprintf("%s.pem", hier.String()))
@@ -268,11 +268,11 @@ func GetKeyBackend(state *config.State, k hierarchy.Hierarchy) (KeyBackend, erro
 	c := state.Config
 	switch k {
 	case hierarchy.PK:
-		return readKey(state, c.Keydir, c.Keys.PK, k)
+		return readKey(state, c.Keydir, k)
 	case hierarchy.KEK:
-		return readKey(state, c.Keydir, c.Keys.KEK, k)
+		return readKey(state, c.Keydir, k)
 	case hierarchy.Db:
-		return readKey(state, c.Keydir, c.Keys.Db, k)
+		return readKey(state, c.Keydir, k)
 	}
 	return nil, nil
 }

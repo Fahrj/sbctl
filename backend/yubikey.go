@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"os"
 	"time"
 
 	"github.com/foxboron/sbctl/config"
@@ -90,11 +89,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		return nil, err
 	}
 
-	auth := piv.KeyAuth{PIN: piv.DefaultPIN}
-	if pin, found := os.LookupEnv("SBCTL_YUBIKEY_PIN"); found {
-		auth = piv.KeyAuth{PIN: pin}
-	}
-	priv, err := yubikeyReader.PrivateKey(piv.SlotSignature, ykCert.PublicKey, auth)
+	priv, err := yubikeyReader.PrivateKey(piv.SlotSignature, ykCert.PublicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -168,12 +163,7 @@ func (f *Yubikey) Type() BackendType              { return f.keytype }
 func (f *Yubikey) Certificate() *x509.Certificate { return f.cert }
 
 func (f *Yubikey) Signer() crypto.Signer {
-	auth := piv.KeyAuth{PIN: piv.DefaultPIN}
-	if pin, found := os.LookupEnv("SBCTL_YUBIKEY_PIN"); found {
-		auth = piv.KeyAuth{PIN: pin}
-	}
-
-	priv, err := f.yubikeyReader.PrivateKey(piv.SlotSignature, f.cert.PublicKey, auth)
+	priv, err := f.yubikeyReader.PrivateKey(piv.SlotSignature, f.cert.PublicKey)
 	if err != nil {
 		panic(err)
 	}

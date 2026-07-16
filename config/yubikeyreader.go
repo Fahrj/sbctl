@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 type YubikeyReader struct {
 	key       *piv.YubiKey
 	Overwrite bool
+	pin       string
 }
 
 func (y *YubikeyReader) GetPIVKeyCert() (*x509.Certificate, error) {
@@ -31,10 +33,11 @@ func (y *YubikeyReader) GenerateKey(key []byte, slot piv.Slot, opts piv.Key) (cr
 	return y.key.GenerateKey(key, slot, opts)
 }
 
-func (y *YubikeyReader) PrivateKey(slot piv.Slot, public crypto.PublicKey, auth piv.KeyAuth) (crypto.PrivateKey, error) {
+func (y *YubikeyReader) PrivateKey(slot piv.Slot, public crypto.PublicKey) (crypto.PrivateKey, error) {
 	if err := y.connectToYubikey(); err != nil {
 		return nil, err
 	}
+	auth := piv.KeyAuth{PIN: y.pin}
 	return y.key.PrivateKey(slot, public, auth)
 }
 
@@ -101,6 +104,12 @@ func (y *YubikeyReader) connectToYubikey() error {
 	yk, err := connectToYubikeyWithTimeout(90 * time.Second)
 	if err != nil {
 		return err
+	}
+
+	if pin, found := os.LookupEnv("SBCTL_YUBIKEY_PIN"); found {
+		y.pin = pin
+	} else {
+		y.pin = piv.DefaultPIN
 	}
 
 	y.key = yk

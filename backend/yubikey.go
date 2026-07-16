@@ -136,17 +136,17 @@ func YubikeyFromBytes(yubikeyReader *config.YubikeyReader, keyb, pemb []byte) (*
 	var yubiData YubikeyData
 	err := json.Unmarshal(keyb, &yubiData)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling yubikey: %v", err)
+		return nil, fmt.Errorf("yubikey: error unmarshalling yubikey: %v", err)
 	}
 
 	block, _ := pem.Decode(pemb)
 	if block == nil {
-		return nil, fmt.Errorf("no pem block")
+		return nil, fmt.Errorf("yubikey: no pem block")
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse cert: %w", err)
+		return nil, fmt.Errorf("yubikey: failed to parse cert: %w", err)
 	}
 
 	return &Yubikey{
@@ -177,12 +177,13 @@ func (f *Yubikey) Description() string { return f.Certificate().Subject.SerialNu
 
 // save YubiKey data to file
 func (f *Yubikey) PrivateKeyBytes() []byte {
+	pubKey, _ := x509.MarshalPKIXPublicKey(f.cert.PublicKey)
 	yubiData := YubikeyData{
 		Slot:        piv.SlotSignature.String(),
 		Algorithm:   f.algorithm,
 		PinPolicy:   f.pinPolicy,
 		TouchPolicy: f.touchPolicy,
-		PublicKey:   base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PublicKey(f.cert.PublicKey.(*rsa.PublicKey))),
+		PublicKey:   base64.StdEncoding.EncodeToString(pubKey),
 	}
 
 	b, err := json.Marshal(yubiData)
@@ -195,13 +196,14 @@ func (f *Yubikey) PrivateKeyBytes() []byte {
 func (f *Yubikey) CertificateBytes() []byte {
 	b := new(bytes.Buffer)
 	if err := pem.Encode(b, &pem.Block{Type: "CERTIFICATE", Bytes: f.cert.Raw}); err != nil {
-		panic("failed producing PEM encoded certificate")
+		panic("yubikey: failed producing PEM encoded certificate")
 	}
 	return b.Bytes()
 }
 
 func md5sum(key crypto.PublicKey) []byte {
 	h := md5.New()
-	h.Write(x509.MarshalPKCS1PublicKey(key.(*rsa.PublicKey)))
+	pubKey, _ := x509.MarshalPKIXPublicKey(key)
+	h.Write(pubKey)
 	return h.Sum(nil)
 }

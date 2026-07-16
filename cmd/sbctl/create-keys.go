@@ -117,7 +117,7 @@ func RunCreateKeys(state *config.State) error {
 
 func createKeysCmdFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.BoolVar(&OverwriteYubikey, "yk-overwrite", false, "overwrite existing key if it exists in the Yubikey Signature slot")
+	f.BoolVar(&OverwriteYubikey, "yk-overwrite", false, "overwrite existing key if it exists in the Yubikey slot")
 	f.StringVarP(&exportPath, "export", "e", "", "export file path")
 	f.StringVarP(&databasePath, "database-path", "d", "", "location to create GUID file")
 	f.StringVarP(&Keytype, "keytype", "", "", "key type for all keys. Algorithm and slot for yubikey can also be specified: yubikey:RSA4096:9c (default: file)")

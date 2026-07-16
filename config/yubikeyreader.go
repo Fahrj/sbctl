@@ -19,11 +19,43 @@ type YubikeyReader struct {
 	Pin       string
 }
 
-func (y *YubikeyReader) GetPIVKeyCert() (*x509.Certificate, error) {
+// Fetches PIN protected management key. If it is not stored, default is returned
+func (y *YubikeyReader) GetManagementKey() ([]byte, error) {
+	var err error
+	if y.Pin == "" {
+		if pin, found := os.LookupEnv("SBCTL_YUBIKEY_PIN"); found {
+			y.Pin = pin
+		} else {
+			y.Pin = piv.DefaultPIN
+		}
+	}
+	if err = y.connectToYubikey(); err != nil {
+		return nil, err
+	}
+	// FIXME: Should swallow error and return default key?
+	metadata, err := y.key.Metadata(y.Pin)
+	if err != nil {
+		return nil, err
+	}
+	if metadata.ManagementKey != nil {
+		return *metadata.ManagementKey, nil
+	} else {
+		return piv.DefaultManagementKey, nil
+	}
+}
+
+func (y *YubikeyReader) GetPIVKeyCert(slot piv.Slot) (*x509.Certificate, error) {
 	if err := y.connectToYubikey(); err != nil {
 		return nil, err
 	}
-	return y.key.Attest(piv.SlotSignature)
+	return y.key.Certificate(slot)
+}
+
+func (y *YubikeyReader) GetPIVAttestationCert(slot piv.Slot) (*x509.Certificate, error) {
+	if err := y.connectToYubikey(); err != nil {
+		return nil, err
+	}
+	return y.key.Attest(slot)
 }
 
 func (y *YubikeyReader) GenerateKey(key []byte, slot piv.Slot, opts piv.Key) (crypto.PublicKey, error) {

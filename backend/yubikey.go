@@ -42,6 +42,7 @@ type Yubikey struct {
 }
 
 func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy, keyConfig *config.KeyConfig) (*Yubikey, error) {
+	var pivAlg piv.Algorithm
 
 	logging.Println(fmt.Sprintf("\nCreating %s (%s) key...", hier.Description(), hier.String()))
 
@@ -52,41 +53,77 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		}
 	}
 
-	if cert != nil {
-		// if there is a key and it is RSA4096 and overwrite is false, use it
+	// if there is a key and overwrite is false, use it
+	if cert != nil && !yubikeyReader.Overwrite {
+		var keyAlgName string
+
 		switch yubiPub := cert.PublicKey.(type) {
 		case *rsa.PublicKey:
-			// RSA4096 Public Key
-			if yubiPub.N.BitLen() == 4096 && !yubikeyReader.Overwrite {
-				logging.Println(fmt.Sprintf("Using RSA4096 Key MD5: %x in Yubikey PIV Signature Slot", md5sum(cert.PublicKey)))
-			} else if !yubikeyReader.Overwrite {
-				return nil, fmt.Errorf("yubikey key creation failed; %s key present in signature slot", cert.PublicKeyAlgorithm.String())
+			// RSA Public Key
+			bitlen := yubiPub.N.BitLen()
+			if bitlen < 2048 {
+				return nil, fmt.Errorf("yubikey: key creation failed; %s key present in signature slot is less than 2048 bits", cert.PublicKeyAlgorithm.String())
+			}
+			keyAlgName = fmt.Sprintf("RSA%d", bitlen)
+			logging.Println(fmt.Sprintf("Using existing %s Key MD5: %x in Yubikey PIV Signature Slot", keyAlgName, md5sum(cert.PublicKey)))
+
+		default:
+			if yubikeyReader.Overwrite {
+				return nil, fmt.Errorf("yubikey: unsupported key type: %s", cert.PublicKey)
 			}
 		}
-	}
-	// if overwrite or there is no piv key create one
-	if yubikeyReader.Overwrite || cert == nil {
-		if yubikeyReader.Overwrite {
-			logging.Warn("Overwriting existing key %s in Signature slot", cert.PublicKeyAlgorithm.String())
+		switch keyAlgName {
+		case "RSA2048":
+			pivAlg = piv.AlgorithmRSA2048
+		case "RSA3072":
+			pivAlg = piv.AlgorithmRSA3072
+		case "RSA4096":
+			pivAlg = piv.AlgorithmRSA4096
+		default:
+			if !yubikeyReader.Overwrite {
+				return nil, fmt.Errorf("yubikey: unsupported existing yubikey key algorithm: %s", keyAlgName)
+			}
 		}
 
-		// Generate a private key on the YubiKey.
-		key := piv.Key{
-			Algorithm:   piv.AlgorithmRSA4096,
-			PINPolicy:   piv.PINPolicyAlways,
-			TouchPolicy: piv.TouchPolicyAlways,
-		}
-		logging.Println("Creating RSA4096 key...\nPlease press Yubikey to confirm presence")
-		newKey, err := yubikeyReader.GenerateKey(piv.DefaultManagementKey, piv.SlotSignature, key)
-		if err != nil {
-			return nil, err
-		}
-		logging.Println(fmt.Sprintf("Created RSA4096 key MD5: %x", md5sum(newKey)))
-
-		// we overwrote the existing signing key, do not overwrite again if there are other
-		// key creation operations
-		yubikeyReader.Overwrite = false
+		return &Yubikey{
+			keytype:       YubikeyBackend,
+			cert:          cert,
+			yubikeyReader: yubikeyReader,
+			algorithm:     pivAlg,
+			pinPolicy:     piv.PINPolicyAlways,
+			touchPolicy:   piv.TouchPolicyAlways,
+		}, nil
 	}
+
+	// if overwrite and there is an existing piv key, print warning
+	if cert != nil && yubikeyReader.Overwrite {
+		logging.Warn("Overwriting existing key %s in Yubikey PIV Signature Slot", cert.PublicKeyAlgorithm.String())
+	}
+
+	switch keyConfig.Algorithm {
+	case "RSA2048":
+		pivAlg = piv.AlgorithmRSA2048
+	case "RSA3072":
+		pivAlg = piv.AlgorithmRSA3072
+	case "RSA4096":
+		pivAlg = piv.AlgorithmRSA4096
+
+	default:
+		return nil, fmt.Errorf("yubikey: unsupported public key algorithm %s", keyConfig.Algorithm)
+	}
+
+	// Generate a private key on the YubiKey.
+	key := piv.Key{
+		Algorithm:   pivAlg,
+		PINPolicy:   piv.PINPolicyAlways,
+		TouchPolicy: piv.TouchPolicyAlways,
+	}
+	logging.Println(fmt.Sprintf("Creating %s key...\nPlease press Yubikey to confirm presence", keyConfig.Algorithm))
+	newKey, err := yubikeyReader.GenerateKey(piv.DefaultManagementKey, piv.SlotSignature, key)
+	if err != nil {
+		return nil, err
+	}
+	logging.Println(fmt.Sprintf("Created %s key MD5: %x", keyConfig.Algorithm, md5sum(newKey)))
 
 	ykCert, err := yubikeyReader.GetPIVKeyCert()
 	if err != nil {
@@ -109,7 +146,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		Subject:            parseSubject(keyConfig.Subject, hier),
 	}
 
-	logging.Println(fmt.Sprintf("Please press Yubikey to confirm presence for RSA4096 MD5: %x", md5sum(ykCert.PublicKey)))
+	logging.Println(fmt.Sprintf("Please press Yubikey to confirm presence for %s MD5: %x", keyConfig.Algorithm, md5sum(cert.PublicKey)))
 	derBytes, err := x509.CreateCertificate(rand.Reader, &c, &c, ykCert.PublicKey, priv)
 	if err != nil {
 		return nil, err
@@ -124,7 +161,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		keytype:       YubikeyBackend,
 		cert:          cert,
 		yubikeyReader: yubikeyReader,
-		algorithm:     piv.AlgorithmRSA4096,
+		algorithm:     pivAlg,
 		pinPolicy:     piv.PINPolicyAlways,
 		touchPolicy:   piv.TouchPolicyAlways,
 	}, nil

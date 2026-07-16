@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,17 +37,25 @@ type Yubikey struct {
 	keytype       BackendType
 	cert          *x509.Certificate
 	yubikeyReader *config.YubikeyReader
+	slot          piv.Slot
 	algorithm     piv.Algorithm
 	pinPolicy     piv.PINPolicy
 	touchPolicy   piv.TouchPolicy
 }
 
 func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy, keyType string) (*Yubikey, error) {
+	var slot piv.Slot
+	var slotName string
 	var pivAlg piv.Algorithm
 
-	algorithm, _ := splitYubiKeyType(keyType)
+	algorithm, slotNumber := splitYubiKeyType(keyType)
 
-	cert, err := yubikeyReader.GetPIVKeyCert()
+	slot, slotName, err := resolvePIVSlot(slotNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	cert, err := yubikeyReader.GetPIVKeyCert(slot)
 	if err != nil {
 		if !errors.Is(err, piv.ErrNotFound) {
 			return nil, fmt.Errorf("failed finding yubikey: %v", err)
@@ -62,10 +71,10 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 			// RSA Public Key
 			bitlen := yubiPub.N.BitLen()
 			if bitlen < 2048 {
-				return nil, fmt.Errorf("yubikey: key creation failed; %s key present in signature slot is less than 2048 bits", cert.PublicKeyAlgorithm.String())
+				return nil, fmt.Errorf("yubikey: key creation failed; %s key present in %s slot is less than 2048 bits", cert.PublicKeyAlgorithm.String(), slotName)
 			}
 			keyAlgName = fmt.Sprintf("RSA%d", bitlen)
-			logging.Println(fmt.Sprintf("Using existing %s Key MD5: %x in Yubikey PIV Signature Slot", keyAlgName, md5sum(cert.PublicKey)))
+			logging.Println(fmt.Sprintf("Using existing %s Key MD5: %x in Yubikey PIV %s Slot", keyAlgName, md5sum(cert.PublicKey), slotName))
 
 		default:
 			return nil, fmt.Errorf("yubikey: unsupported key type: %s", cert.PublicKey)
@@ -85,6 +94,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 			keytype:       YubikeyBackend,
 			cert:          cert,
 			yubikeyReader: yubikeyReader,
+			slot:          slot,
 			algorithm:     pivAlg,
 			pinPolicy:     piv.PINPolicyAlways,
 			touchPolicy:   piv.TouchPolicyAlways,
@@ -93,7 +103,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 
 	// if overwrite and there is an existing piv key, print warning
 	if cert != nil && yubikeyReader.Overwrite {
-		logging.Warn("Overwriting existing key %s in Yubikey PIV Signature Slot", cert.PublicKeyAlgorithm.String())
+		logging.Warn("Overwriting existing key %s in Yubikey PIV %s Slot", cert.PublicKeyAlgorithm.String(), slotName)
 	}
 
 	switch algorithm {
@@ -108,25 +118,31 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		return nil, fmt.Errorf("yubikey: unsupported public key algorithm %s", algorithm)
 	}
 
+	// Get management key
+	mgmtKey, err := yubikeyReader.GetManagementKey()
+	if err != nil {
+		return nil, err
+	}
+
 	// Generate a private key on the YubiKey.
 	key := piv.Key{
 		Algorithm:   pivAlg,
 		PINPolicy:   piv.PINPolicyAlways,
 		TouchPolicy: piv.TouchPolicyAlways,
 	}
-	logging.Println(fmt.Sprintf("Creating %s key...\nPlease press Yubikey to confirm presence", algorithm))
-	newKey, err := yubikeyReader.GenerateKey(piv.DefaultManagementKey, piv.SlotSignature, key)
+	logging.Println(fmt.Sprintf("Creating %s key in Yubikey PIV %s Slot...\nPlease press Yubikey to confirm presence", slotName, algorithm))
+	newKey, err := yubikeyReader.GenerateKey(mgmtKey, slot, key)
 	if err != nil {
 		return nil, err
 	}
-	logging.Println(fmt.Sprintf("Created %s key MD5: %x", algorithm, md5sum(newKey)))
+	logging.Println(fmt.Sprintf("Created %s key in Yubikey PIV %s Slot MD5: %x", algorithm, slotName, md5sum(newKey)))
 
-	ykCert, err := yubikeyReader.GetPIVKeyCert()
+	cert, err = yubikeyReader.GetPIVKeyCert(slot)
 	if err != nil {
 		return nil, err
 	}
 
-	priv, err := yubikeyReader.PrivateKey(piv.SlotSignature, ykCert.PublicKey)
+	priv, err := yubikeyReader.PrivateKey(slot, cert.PublicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +162,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 	}
 
 	logging.Println(fmt.Sprintf("Please press Yubikey to confirm presence for %s MD5: %x", algorithm, md5sum(cert.PublicKey)))
-	derBytes, err := x509.CreateCertificate(rand.Reader, &c, &c, ykCert.PublicKey, priv)
+	derBytes, err := x509.CreateCertificate(rand.Reader, &c, &c, cert.PublicKey, priv)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +176,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		keytype:       YubikeyBackend,
 		cert:          cert,
 		yubikeyReader: yubikeyReader,
+		slot:          slot,
 		algorithm:     pivAlg,
 		pinPolicy:     piv.PINPolicyAlways,
 		touchPolicy:   piv.TouchPolicyAlways,
@@ -168,9 +185,15 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 
 func YubikeyFromBytes(yubikeyReader *config.YubikeyReader, keyb, pemb []byte) (*Yubikey, error) {
 	var yubiData YubikeyData
+	var slot piv.Slot
 	err := json.Unmarshal(keyb, &yubiData)
 	if err != nil {
 		return nil, fmt.Errorf("yubikey: error unmarshalling yubikey: %v", err)
+	}
+
+	slot, _, err = resolvePIVSlot(yubiData.Slot)
+	if err != nil {
+		return nil, err
 	}
 
 	block, _ := pem.Decode(pemb)
@@ -187,6 +210,7 @@ func YubikeyFromBytes(yubikeyReader *config.YubikeyReader, keyb, pemb []byte) (*
 		keytype:       YubikeyBackend,
 		cert:          cert,
 		yubikeyReader: yubikeyReader,
+		slot:          slot,
 		algorithm:     yubiData.Algorithm,
 		pinPolicy:     yubiData.PinPolicy,
 		touchPolicy:   yubiData.TouchPolicy,
@@ -197,7 +221,7 @@ func (f *Yubikey) Type() BackendType              { return f.keytype }
 func (f *Yubikey) Certificate() *x509.Certificate { return f.cert }
 
 func (f *Yubikey) Signer() crypto.Signer {
-	priv, err := f.yubikeyReader.PrivateKey(piv.SlotSignature, f.cert.PublicKey)
+	priv, err := f.yubikeyReader.PrivateKey(f.slot, f.cert.PublicKey)
 	if err != nil {
 		panic(err)
 	}
@@ -213,7 +237,7 @@ func (f *Yubikey) Description() string { return f.Certificate().Subject.SerialNu
 func (f *Yubikey) PrivateKeyBytes() []byte {
 	pubKey, _ := x509.MarshalPKIXPublicKey(f.cert.PublicKey)
 	yubiData := YubikeyData{
-		Slot:        piv.SlotSignature.String(),
+		Slot:        f.slot.String(),
 		Algorithm:   f.algorithm,
 		PinPolicy:   f.pinPolicy,
 		TouchPolicy: f.touchPolicy,
@@ -240,6 +264,38 @@ func md5sum(key crypto.PublicKey) []byte {
 	pubKey, _ := x509.MarshalPKIXPublicKey(key)
 	h.Write(pubKey)
 	return h.Sum(nil)
+}
+
+func resolvePIVSlot(slot string) (piv.Slot, string, error) {
+	var pivSlot piv.Slot
+	var slotName string
+
+	switch strings.ToLower(slot) {
+	case "9c":
+		pivSlot = piv.SlotSignature
+		slotName = "Signature"
+	case "9a":
+		pivSlot = piv.SlotAuthentication
+		slotName = "Authentication"
+	case "9e":
+		pivSlot = piv.SlotCardAuthentication
+		slotName = "CardAuthentication"
+	case "9d":
+		pivSlot = piv.SlotKeyManagement
+		slotName = "KeyManagement"
+	default:
+		// maybe one of retired slots
+		var found bool = false
+		slotHexVal, err := strconv.ParseUint(slot, 16, 8)
+		if err == nil {
+			pivSlot, found = piv.RetiredKeyManagementSlot(uint32(slotHexVal))
+		}
+		if !found {
+			return piv.Slot{}, "", fmt.Errorf("yubikey: Invalid key slot %s", slot)
+		}
+		slotName = fmt.Sprintf("RetiredKeyManagementSlot:0x%s", slot)
+	}
+	return pivSlot, slotName, nil
 }
 
 func splitYubiKeyType(keyType string) (string, string) {

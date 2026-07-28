@@ -111,6 +111,61 @@ func (k *KeyHierarchy) UpdateKeyBackend(kb KeyBackend, hier hierarchy.Hierarchy)
 	}
 }
 
+// CreateKey generates private and public parts of the given hierarchy and updates its KeyBackend.
+func (k *KeyHierarchy) CreateKey(backend BackendType, hier hierarchy.Hierarchy, desc string) error {
+	var kb KeyBackend
+	var err error
+
+	if desc == "" {
+		desc = hier.Description()
+	}
+
+	switch backend {
+	case FileBackend:
+		kb, err = NewFileKey(hier, desc)
+
+	case TPMBackend:
+		kb, err = NewTPMKey(k.state.TPM, desc)
+
+	case YubikeyBackend:
+		kb, err = NewYubikeyKey(k.state.Yubikey, hier)
+
+	default:
+		kb, err = NewFileKey(hier, desc)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	k.UpdateKeyBackend(kb, hier)
+
+	return nil
+}
+
+// CreateKeys generates private and public parts of the entire hierarchy and updates their KeyBackends.
+func (k *KeyHierarchy) CreateKeys() error {
+	var err error
+	c := k.state.Config
+
+	err = k.CreateKey(BackendType(c.Keys.PK.Type), hierarchy.PK, c.Keys.PK.Description)
+	if err != nil {
+		return err
+	}
+
+	err = k.CreateKey(BackendType(c.Keys.KEK.Type), hierarchy.KEK, c.Keys.KEK.Description)
+	if err != nil {
+		return err
+	}
+
+	err = k.CreateKey(BackendType(c.Keys.Db.Type), hierarchy.Db, c.Keys.Db.Description)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (k *KeyHierarchy) SaveKey(vfs afero.Fs, hier hierarchy.Hierarchy, keydir string) error {
 	writeFile := func(file string, b []byte) error {
 		if err := vfs.MkdirAll(filepath.Dir(file), os.ModePerm); err != nil {
@@ -154,11 +209,11 @@ func (k *KeyHierarchy) RotateKeyWithBackend(hier hierarchy.Hierarchy, backend Ba
 	var err error
 	switch hier {
 	case hierarchy.PK:
-		k.pk, err = createKey(k.state, string(backend), hier, k.pk.Description())
+		err = k.CreateKey(backend, hier, k.pk.Description())
 	case hierarchy.KEK:
-		k.kek, err = createKey(k.state, string(backend), hier, k.kek.Description())
+		err = k.CreateKey(backend, hier, k.kek.Description())
 	case hierarchy.Db:
-		k.db, err = createKey(k.state, string(backend), hier, k.db.Description())
+		err = k.CreateKey(backend, hier, k.db.Description())
 	}
 	return err
 }
@@ -225,45 +280,6 @@ func (k *KeyHierarchy) SignFile(hier hierarchy.Hierarchy, peBinary *authenticode
 		return nil, err
 	}
 	return peBinary.Bytes(), nil
-}
-
-func createKey(state *config.State, backend string, hier hierarchy.Hierarchy, desc string) (KeyBackend, error) {
-	if desc == "" {
-		desc = hier.Description()
-	}
-	switch backend {
-	case "file", "":
-		return NewFileKey(hier, desc)
-	case "tpm":
-		return NewTPMKey(state.TPM, desc)
-	case "yubikey":
-		return NewYubikeyKey(state.Yubikey, hier)
-	default:
-		return NewFileKey(hier, desc)
-	}
-}
-
-func CreateKeys(state *config.State) (*KeyHierarchy, error) {
-	var hier KeyHierarchy
-	var err error
-
-	c := state.Config
-	hier.pk, err = createKey(state, c.Keys.PK.Type, hierarchy.PK, c.Keys.PK.Description)
-	if err != nil {
-		return nil, err
-	}
-
-	hier.kek, err = createKey(state, c.Keys.KEK.Type, hierarchy.KEK, c.Keys.KEK.Description)
-	if err != nil {
-		return nil, err
-	}
-
-	hier.db, err = createKey(state, c.Keys.Db.Type, hierarchy.Db, c.Keys.Db.Description)
-	if err != nil {
-		return nil, err
-	}
-
-	return &hier, nil
 }
 
 func readKey(state *config.State, keydir string, kc *config.KeyConfig, hier hierarchy.Hierarchy) (KeyBackend, error) {

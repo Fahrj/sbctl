@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
+type CreateKeysCmdOptions struct {
 	exportPath       string
 	databasePath     string
 	Keytype          string
@@ -22,16 +22,19 @@ var (
 	DbKeytype        string
 	PKKeytype        string
 	OverwriteYubikey bool
-)
-
-var createKeysCmd = &cobra.Command{
-	Use:   "create-keys",
-	Short: "Create a set of secure boot signing keys",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		state := cmd.Context().Value(stateDataKey{}).(*config.State)
-		return RunCreateKeys(state)
-	},
 }
+
+var (
+	createKeysCmdOptions = CreateKeysCmdOptions{}
+	createKeysCmd        = &cobra.Command{
+		Use:   "create-keys",
+		Short: "Create a set of secure boot signing keys",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			state := cmd.Context().Value(stateDataKey{}).(*config.State)
+			return RunCreateKeys(state)
+		},
+	}
+)
 
 func RunCreateKeys(state *config.State) error {
 	if state.Config.Landlock {
@@ -43,15 +46,15 @@ func RunCreateKeys(state *config.State) error {
 		}
 	}
 	// Overrides keydir or GUID location
-	if exportPath != "" {
-		state.Config.Keydir = exportPath
+	if createKeysCmdOptions.exportPath != "" {
+		state.Config.Keydir = createKeysCmdOptions.exportPath
 	}
 
-	if databasePath != "" {
-		state.Config.GUID = databasePath
+	if createKeysCmdOptions.databasePath != "" {
+		state.Config.GUID = createKeysCmdOptions.databasePath
 	}
 
-	if OverwriteYubikey {
+	if createKeysCmdOptions.OverwriteYubikey {
 		logging.Warn("Overwriting Yubikey option enabled")
 		state.Yubikey.Overwrite = true
 	}
@@ -64,24 +67,24 @@ func RunCreateKeys(state *config.State) error {
 	}
 
 	// Should be own flag type
-	if Keytype != "" && (Keytype == "file" || Keytype == "tpm" || Keytype == "yubikey") {
-		state.Config.Keys.PK.Type = Keytype
-		state.Config.Keys.KEK.Type = Keytype
-		state.Config.Keys.Db.Type = Keytype
+	if createKeysCmdOptions.Keytype != "" && (createKeysCmdOptions.Keytype == "file" || createKeysCmdOptions.Keytype == "tpm" || createKeysCmdOptions.Keytype == "yubikey") {
+		state.Config.Keys.PK.Type = createKeysCmdOptions.Keytype
+		state.Config.Keys.KEK.Type = createKeysCmdOptions.Keytype
+		state.Config.Keys.Db.Type = createKeysCmdOptions.Keytype
 	} else {
-		if PKKeytype != "" && (PKKeytype == "file" || PKKeytype == "tpm" || PKKeytype == "yubikey") {
-			state.Config.Keys.PK.Type = PKKeytype
+		if createKeysCmdOptions.PKKeytype != "" && (createKeysCmdOptions.PKKeytype == "file" || createKeysCmdOptions.PKKeytype == "tpm" || createKeysCmdOptions.PKKeytype == "yubikey") {
+			state.Config.Keys.PK.Type = createKeysCmdOptions.PKKeytype
 		}
-		if KEKKeytype != "" && (KEKKeytype == "file" || KEKKeytype == "tpm" || KEKKeytype == "yubikey") {
-			state.Config.Keys.KEK.Type = KEKKeytype
+		if createKeysCmdOptions.KEKKeytype != "" && (createKeysCmdOptions.KEKKeytype == "file" || createKeysCmdOptions.KEKKeytype == "tpm" || createKeysCmdOptions.KEKKeytype == "yubikey") {
+			state.Config.Keys.KEK.Type = createKeysCmdOptions.KEKKeytype
 		}
-		if DbKeytype != "" && (DbKeytype == "file" || DbKeytype == "tpm" || DbKeytype == "yubikey") {
-			state.Config.Keys.Db.Type = DbKeytype
+		if createKeysCmdOptions.DbKeytype != "" && (createKeysCmdOptions.DbKeytype == "file" || createKeysCmdOptions.DbKeytype == "tpm" || createKeysCmdOptions.DbKeytype == "yubikey") {
+			state.Config.Keys.Db.Type = createKeysCmdOptions.DbKeytype
 		}
 	}
 
 	// if any keytype is yubikey close it appropriately at the end
-	if Keytype == "yubikey" || PKKeytype == "yubikey" || KEKKeytype == "yubikey" || DbKeytype == "yubikey" {
+	if createKeysCmdOptions.Keytype == "yubikey" || createKeysCmdOptions.PKKeytype == "yubikey" || createKeysCmdOptions.KEKKeytype == "yubikey" || createKeysCmdOptions.DbKeytype == "yubikey" {
 		defer state.Yubikey.Close()
 	}
 
@@ -114,13 +117,13 @@ func RunCreateKeys(state *config.State) error {
 
 func createKeysCmdFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.BoolVar(&OverwriteYubikey, "yk-overwrite", false, "overwrite existing key if it exists in the Yubikey Signature slot")
-	f.StringVarP(&exportPath, "export", "e", "", "export file path")
-	f.StringVarP(&databasePath, "database-path", "d", "", "location to create GUID file")
-	f.StringVarP(&Keytype, "keytype", "", "", "key type for all keys")
-	f.StringVarP(&PKKeytype, "pk-keytype", "", "", "PK key type (default: file)")
-	f.StringVarP(&KEKKeytype, "kek-keytype", "", "", "KEK key type (default: file)")
-	f.StringVarP(&DbKeytype, "db-keytype", "", "", "db key type (default: file)")
+	f.BoolVar(&createKeysCmdOptions.OverwriteYubikey, "yk-overwrite", false, "overwrite existing key if it exists in the Yubikey Signature slot")
+	f.StringVarP(&createKeysCmdOptions.exportPath, "export", "e", "", "export file path")
+	f.StringVarP(&createKeysCmdOptions.databasePath, "database-path", "d", "", "location to create GUID file")
+	f.StringVarP(&createKeysCmdOptions.Keytype, "keytype", "", "", "key type for all keys")
+	f.StringVarP(&createKeysCmdOptions.PKKeytype, "pk-keytype", "", "", "PK key type (default: file)")
+	f.StringVarP(&createKeysCmdOptions.KEKKeytype, "kek-keytype", "", "", "KEK key type (default: file)")
+	f.StringVarP(&createKeysCmdOptions.DbKeytype, "db-keytype", "", "", "db key type (default: file)")
 }
 
 func init() {

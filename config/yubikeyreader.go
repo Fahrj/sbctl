@@ -51,6 +51,17 @@ func (y *YubikeyReader) GetPIVAttestationCert(slot piv.Slot) (*x509.Certificate,
 	return y.key.Attest(slot)
 }
 
+func (y *YubikeyReader) SetPIVCert(slot piv.Slot, cert *x509.Certificate) error {
+	if err := y.connectToYubikey(); err != nil {
+		return err
+	}
+	managementKey, err := y.GetManagementKey()
+	if err != nil {
+		return err
+	}
+	return y.key.SetCertificate(managementKey, slot, cert)
+}
+
 func (y *YubikeyReader) GenerateKey(key []byte, slot piv.Slot, opts piv.Key) (crypto.PublicKey, error) {
 	if err := y.connectToYubikey(); err != nil {
 		return nil, err

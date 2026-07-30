@@ -172,6 +172,11 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		return nil, err
 	}
 
+	err = yubikeyReader.SetPIVCert(slot, cert)
+	if err != nil {
+		logging.Errorf("could not save cert to yubikey: %v", err)
+	}
+
 	return &Yubikey{
 		keytype:       YubikeyBackend,
 		cert:          cert,

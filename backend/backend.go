@@ -46,21 +46,28 @@ type KeyHierarchy struct {
 }
 
 func (k *KeyHierarchy) GetConfig(keydir string) *config.Keys {
+	keyType := func(key interface{ Type() BackendType }) string {
+		if key == nil {
+			return string(FileBackend)
+		}
+		return string(key.Type())
+	}
+
 	return &config.Keys{
 		PK: &config.KeyConfig{
 			Privkey: filepath.Join(keydir, "PK/PK.key"),
 			Pubkey:  filepath.Join(keydir, "PK/PK.pem"),
-			Type:    string(k.pk.Type()),
+			Type:    keyType(k.pk),
 		},
 		KEK: &config.KeyConfig{
 			Privkey: filepath.Join(keydir, "KEK/KEK.key"),
 			Pubkey:  filepath.Join(keydir, "KEK/KEK.pem"),
-			Type:    string(k.kek.Type()),
+			Type:    keyType(k.kek),
 		},
 		Db: &config.KeyConfig{
 			Privkey: filepath.Join(keydir, "db/db.key"),
 			Pubkey:  filepath.Join(keydir, "db/db.pem"),
-			Type:    string(k.db.Type()),
+			Type:    keyType(k.db),
 		},
 	}
 }

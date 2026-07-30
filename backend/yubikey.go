@@ -130,7 +130,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		PINPolicy:   piv.PINPolicyAlways,
 		TouchPolicy: piv.TouchPolicyAlways,
 	}
-	logging.Println(fmt.Sprintf("Creating %s key in Yubikey PIV %s Slot...\nPlease press Yubikey to confirm presence", slotName, algorithm))
+	logging.Println(fmt.Sprintf("Creating %s key in Yubikey PIV %s Slot... This might take some time!", slotName, algorithm))
 	newKey, err := yubikeyReader.GenerateKey(mgmtKey, slot, key)
 	if err != nil {
 		return nil, err

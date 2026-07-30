@@ -223,7 +223,7 @@ func (f *Yubikey) Certificate() *x509.Certificate { return f.cert }
 func (f *Yubikey) Signer() crypto.Signer {
 	priv, err := f.yubikeyReader.PrivateKey(f.slot, f.cert.PublicKey)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("could not access private key for signing operation: %v", err))
 	}
 	logging.Println(fmt.Sprintf("Signing operation... please press Yubikey to confirm presence for key %s MD5: %x",
 		f.cert.PublicKeyAlgorithm.String(),
@@ -246,7 +246,7 @@ func (f *Yubikey) PrivateKeyBytes() []byte {
 
 	b, err := json.Marshal(yubiData)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("could not marshal private key: %v", err))
 	}
 	return b
 }

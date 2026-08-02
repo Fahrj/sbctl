@@ -38,46 +38,58 @@ func (y *YubikeyReader) PrivateKey(slot piv.Slot, public crypto.PublicKey, auth 
 	return y.key.PrivateKey(slot, public, auth)
 }
 
-func yubikeyWithTimeout(waitTime time.Duration) (string, error) {
-	logging.Println(fmt.Sprintf("Please connect yubikey! Waiting %v seconds...", int(waitTime.Seconds())))
-	c := make(chan []string, 1)
+func connectToYubikeyWithTimeout(waitTime time.Duration) (*piv.YubiKey, error) {
+	logging.Print("Please connect yubikey! Waiting %v seconds...\n", int(waitTime.Seconds()))
+
 	timeout := time.After(waitTime)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-time.After(500 * time.Millisecond):
-			if newCards, err := piv.Cards(); err == nil && len(newCards) > 0 {
-				c <- newCards
-				goto end
+		case <-ticker.C:
+			cards, err := piv.Cards()
+			if err != nil {
+				logging.Error(err)
+				continue
 			}
-		case <-timeout:
-			// time out
-			goto end
-		}
-	}
 
-end:
-	select {
-	case cards := <-c:
-		// short circuit if no cards are found at all.
-		if len(cards) == 0 {
-			return "", fmt.Errorf("no yubikeys connected")
-		}
-		// Filter out non yubikeys for users that have a smartcard reader.
-		var yubicards []string
-		for i := range cards {
-			if strings.Contains(strings.ToLower(cards[i]), "yubikey") {
-				yubicards = append(yubicards, cards[i])
+			if len(cards) == 0 {
+				// No smartcards at all, keep waiting
+				continue
 			}
+
+			// Filter out non-yubikeys for users that have other smartcard readers
+			var yubicards []string
+			for _, card := range cards {
+				if strings.Contains(strings.ToLower(card), "yubikey") {
+					yubicards = append(yubicards, card)
+				}
+			}
+
+			switch len(yubicards) {
+			case 0:
+				// No yubikeys yet, keep waiting
+				continue
+
+			case 1:
+				logging.Print("YubiKey found: %s\n", yubicards[0])
+
+				var yk *piv.YubiKey
+				if yk, err = piv.Open(yubicards[0]); err != nil || yk == nil {
+					return nil, fmt.Errorf("error opening yubikey: %v", err)
+				}
+				return yk, nil
+
+			default:
+				return nil, fmt.Errorf("error, %d yubikeys connected", len(yubicards))
+
+			}
+
+		case <-timeout:
+			return nil, fmt.Errorf("timeout waiting for yubikey")
+
 		}
-		if len(yubicards) != 1 {
-			return "", fmt.Errorf("error %d yubikeys connected", len(cards))
-		}
-		if len(yubicards) == 0 {
-			return "", fmt.Errorf("no yubikeys connected")
-		}
-		return yubicards[0], nil
-	default:
-		return "", fmt.Errorf("timeout waiting for yubikey")
 	}
 }
 
@@ -85,14 +97,10 @@ func (y *YubikeyReader) connectToYubikey() error {
 	if y.key != nil {
 		return nil
 	}
-	card, err := yubikeyWithTimeout(90 * time.Second)
+
+	yk, err := connectToYubikeyWithTimeout(90 * time.Second)
 	if err != nil {
 		return err
-	}
-
-	var yk *piv.YubiKey
-	if yk, err = piv.Open(card); err != nil || yk == nil {
-		return fmt.Errorf("error opening yubikey: %v", err)
 	}
 
 	y.key = yk

@@ -39,13 +39,17 @@ var (
 
 func Import(vfs afero.Fs, src, dst string) error {
 	logging.Print("Importing %s...", src)
-	if err := os.MkdirAll(filepath.Dir(dst), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), os.ModePerm); err != nil {
 		logging.NotOk("")
 		return fmt.Errorf("could not create directory for %q: %w", dst, err)
 	}
 	if err := sbctl.CopyFile(vfs, src, dst); err != nil {
 		logging.NotOk("")
 		return fmt.Errorf("could not move %s: %w", src, err)
+	}
+	if err := vfs.Chmod(dst, 0o400); err != nil {
+		logging.NotOk("")
+		return fmt.Errorf("could not set file permissions %s: %w", dst, err)
 	}
 	logging.Ok("")
 	return nil

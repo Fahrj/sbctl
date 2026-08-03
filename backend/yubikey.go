@@ -142,7 +142,7 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		return nil, err
 	}
 
-	priv, err := yubikeyReader.PrivateKey(slot, cert.PublicKey)
+	priv, _, err := yubikeyReader.PrivateKey(slot)
 	if err != nil {
 		return nil, err
 	}
@@ -226,13 +226,11 @@ func (f *Yubikey) Type() BackendType              { return f.keytype }
 func (f *Yubikey) Certificate() *x509.Certificate { return f.cert }
 
 func (f *Yubikey) Signer() crypto.Signer {
-	priv, err := f.yubikeyReader.PrivateKey(f.slot, f.cert.PublicKey)
+	priv, pub, err := f.yubikeyReader.PrivateKey(f.slot)
 	if err != nil {
 		panic(fmt.Errorf("could not access private key for signing operation: %v", err))
 	}
-	logging.Println(fmt.Sprintf("Signing operation... please press Yubikey to confirm presence for key %s MD5: %x",
-		f.cert.PublicKeyAlgorithm.String(),
-		md5sum(f.cert.PublicKey)))
+	logging.Print("Signing operation... please press Yubikey to confirm presence for key (MD5: %x)\n", md5sum(pub))
 	return priv.(crypto.Signer)
 }
 

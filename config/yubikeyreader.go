@@ -69,12 +69,40 @@ func (y *YubikeyReader) GenerateKey(key []byte, slot piv.Slot, opts piv.Key) (cr
 	return y.key.GenerateKey(key, slot, opts)
 }
 
-func (y *YubikeyReader) PrivateKey(slot piv.Slot, public crypto.PublicKey) (crypto.PrivateKey, error) {
+func (y *YubikeyReader) PrivateKey(slot piv.Slot) (crypto.PrivateKey, crypto.PublicKey, error) {
+	var pubKey crypto.PublicKey
+
 	if err := y.connectToYubikey(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	auth := piv.KeyAuth{PIN: y.pin}
-	return y.key.PrivateKey(slot, public, auth)
+
+	version := y.key.Version()
+
+	if version.Major > 5 || (version.Major == 5 && version.Minor >= 3) {
+		keyInfo, err := y.key.KeyInfo(slot)
+		if err != nil {
+			return nil, nil, err
+		}
+		pubKey = keyInfo.PublicKey
+
+	} else if version.Major > 4 || (version.Major == 4 && version.Minor >= 3) {
+		attestationCert, err := y.key.Attest(slot)
+		if err != nil {
+			return nil, nil, err
+		}
+		pubKey = attestationCert.PublicKey
+
+	} else {
+		return nil, nil, fmt.Errorf("Unsupported YubiKey Version, too old: %d.%d.%d", version.Major, version.Minor, version.Patch)
+	}
+
+	privKey, err := y.key.PrivateKey(slot, pubKey, auth)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return privKey, pubKey, err
 }
 
 func connectToYubikeyWithTimeout(waitTime time.Duration) (*piv.YubiKey, error) {

@@ -55,126 +55,133 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 		return nil, err
 	}
 
-	cert, err := yubikeyReader.GetPIVKeyCert(slot)
-	if err != nil {
-		if !errors.Is(err, piv.ErrNotFound) {
-			return nil, fmt.Errorf("failed finding yubikey: %v", err)
-		}
+	// Load private key from slot
+	priv, pub, err := yubikeyReader.PrivateKey(slot)
+	if err != nil && !errors.Is(err, piv.ErrNotFound) {
+		return nil, err
 	}
 
-	// if there is a key and overwrite is false, use it
-	if cert != nil && !yubikeyReader.Overwrite {
-		var keyAlgName string
-
-		switch yubiPub := cert.PublicKey.(type) {
-		case *rsa.PublicKey:
-			// RSA Public Key
-			bitlen := yubiPub.N.BitLen()
-			if bitlen < 2048 {
-				return nil, fmt.Errorf("yubikey: key creation failed; %s key present in %s slot is less than 2048 bits", cert.PublicKeyAlgorithm.String(), slotName)
-			}
-			keyAlgName = fmt.Sprintf("RSA%d", bitlen)
-			logging.Println(fmt.Sprintf("Using existing %s Key MD5: %x in Yubikey PIV %s Slot", keyAlgName, md5sum(cert.PublicKey), slotName))
-
-		default:
-			return nil, fmt.Errorf("yubikey: unsupported key type: %s", cert.PublicKey)
+	// If there is no key or overwrite is set, generate a new one
+	if priv == nil || yubikeyReader.Overwrite {
+		if priv != nil && yubikeyReader.Overwrite {
+			logging.Warn("overwriting existing key in Yubikey PIV %s Slot", slotName)
 		}
-		switch keyAlgName {
+
+		switch algorithm {
 		case "RSA2048":
 			pivAlg = piv.AlgorithmRSA2048
 		case "RSA3072":
 			pivAlg = piv.AlgorithmRSA3072
 		case "RSA4096":
 			pivAlg = piv.AlgorithmRSA4096
+
 		default:
-			return nil, fmt.Errorf("yubikey: unsupported existing yubikey key algorithm: %s", keyAlgName)
+			return nil, fmt.Errorf("yubikey: unsupported public key algorithm %s", algorithm)
 		}
 
-		return &Yubikey{
-			keytype:       YubikeyBackend,
-			cert:          cert,
-			yubikeyReader: yubikeyReader,
-			slot:          slot,
-			algorithm:     pivAlg,
-			pinPolicy:     piv.PINPolicyAlways,
-			touchPolicy:   piv.TouchPolicyAlways,
-		}, nil
+		// Get management key
+		mgmtKey, err := yubikeyReader.GetManagementKey()
+		if err != nil {
+			return nil, err
+		}
+
+		// Generate a private keyOptions on the YubiKey.
+		keyOptions := piv.Key{
+			Algorithm:   pivAlg,
+			PINPolicy:   piv.PINPolicyAlways,
+			TouchPolicy: piv.TouchPolicyAlways,
+		}
+		logging.Println(fmt.Sprintf("creating %s key in Yubikey PIV %s Slot... This might take some time!", algorithm, slotName))
+		newKey, err := yubikeyReader.GenerateKey(mgmtKey, slot, keyOptions)
+		if err != nil {
+			return nil, err
+		}
+		logging.Println(fmt.Sprintf("created %s key in Yubikey PIV %s Slot (MD5: %x)", algorithm, slotName, md5sum(newKey)))
+
+		// Load newly created private key
+		priv, pub, err = yubikeyReader.PrivateKey(slot)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		logging.Print("re-using existing key (MD5: %x) in Yubikey PIV %s Slot\n", md5sum(pub), slotName)
 	}
 
-	// if overwrite and there is an existing piv key, print warning
-	if cert != nil && yubikeyReader.Overwrite {
-		logging.Warn("Overwriting existing key %s in Yubikey PIV %s Slot", cert.PublicKeyAlgorithm.String(), slotName)
-	}
-
-	switch algorithm {
-	case "RSA2048":
-		pivAlg = piv.AlgorithmRSA2048
-	case "RSA3072":
-		pivAlg = piv.AlgorithmRSA3072
-	case "RSA4096":
-		pivAlg = piv.AlgorithmRSA4096
+	// Check compatibility of private key
+	switch yubiPub := pub.(type) {
+	case *rsa.PublicKey:
+		switch bitlen := yubiPub.N.BitLen(); bitlen {
+		case 2048:
+			pivAlg = piv.AlgorithmRSA2048
+		case 3072:
+			pivAlg = piv.AlgorithmRSA3072
+		case 4096:
+			pivAlg = piv.AlgorithmRSA4096
+		default:
+			return nil, fmt.Errorf("unsupported bitlen of existing yubikey key: %d", bitlen)
+		}
 
 	default:
-		return nil, fmt.Errorf("yubikey: unsupported public key algorithm %s", algorithm)
+		return nil, fmt.Errorf("yubikey: unsupported key type: %T", yubiPub)
 	}
 
-	// Get management key
-	mgmtKey, err := yubikeyReader.GetManagementKey()
+	// Load certificate from slot
+	cert, err := yubikeyReader.GetPIVKeyCert(slot)
+	if err != nil && !errors.Is(err, piv.ErrNotFound) {
+		return nil, fmt.Errorf("yubikey: failed finding certificate: %v", err)
+	}
+
+	// If there is no certificate or overwrite is set, generate a new one and save it to the slot
+	if cert == nil || yubikeyReader.Overwrite {
+		if cert != nil && yubikeyReader.Overwrite {
+			logging.Warn("Overwriting existing certificate in Yubikey PIV %s Slot\n", slotName)
+		}
+
+		serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+		serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
+		c := x509.Certificate{
+			SerialNumber:       serialNumber,
+			PublicKeyAlgorithm: x509.RSA,
+			SignatureAlgorithm: x509.SHA256WithRSA,
+			NotBefore:          time.Now(),
+			NotAfter:           time.Now().AddDate(20, 0, 0),
+			Subject: pkix.Name{
+				Country:    []string{hier.Description()},
+				CommonName: hier.Description(),
+			},
+		}
+
+		logging.Print("confirm presence on YubiKey to sign certificate with key (MD5: %x)\n", md5sum(pub))
+		derBytes, err := x509.CreateCertificate(rand.Reader, &c, &c, pub, priv)
+		if err != nil {
+			return nil, err
+		}
+
+		cert, err = x509.ParseCertificate(derBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		err = yubikeyReader.SetPIVCert(slot, cert)
+		if err != nil {
+			logging.Errorf("could not save cert to yubikey: %v", err)
+		}
+	} else {
+		logging.Print("re-using existing certificate %s in Yubikey PIV %s Slot\n", cert.Subject, slotName)
+	}
+
+	// Check whether certificate was signed with matching private key, as this
+	// does not have to be the case if existing keys or certs are re-used.
+	pubCertBytes, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can not marshal public key of certificate: %v", err)
 	}
-
-	// Generate a private key on the YubiKey.
-	key := piv.Key{
-		Algorithm:   pivAlg,
-		PINPolicy:   piv.PINPolicyAlways,
-		TouchPolicy: piv.TouchPolicyAlways,
-	}
-	logging.Println(fmt.Sprintf("Creating %s key in Yubikey PIV %s Slot... This might take some time!", slotName, algorithm))
-	newKey, err := yubikeyReader.GenerateKey(mgmtKey, slot, key)
+	pubBytes, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can not marshal public key: %v", err)
 	}
-	logging.Println(fmt.Sprintf("Created %s key in Yubikey PIV %s Slot MD5: %x", algorithm, slotName, md5sum(newKey)))
-
-	cert, err = yubikeyReader.GetPIVKeyCert(slot)
-	if err != nil {
-		return nil, err
-	}
-
-	priv, _, err := yubikeyReader.PrivateKey(slot)
-	if err != nil {
-		return nil, err
-	}
-
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
-	c := x509.Certificate{
-		SerialNumber:       serialNumber,
-		PublicKeyAlgorithm: x509.RSA,
-		SignatureAlgorithm: x509.SHA256WithRSA,
-		NotBefore:          time.Now(),
-		NotAfter:           time.Now().AddDate(20, 0, 0),
-		Subject: pkix.Name{
-			Country:    []string{hier.Description()},
-			CommonName: hier.Description(),
-		},
-	}
-
-	logging.Println(fmt.Sprintf("Please press Yubikey to confirm presence for %s MD5: %x", algorithm, md5sum(cert.PublicKey)))
-	derBytes, err := x509.CreateCertificate(rand.Reader, &c, &c, cert.PublicKey, priv)
-	if err != nil {
-		return nil, err
-	}
-
-	cert, err = x509.ParseCertificate(derBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	err = yubikeyReader.SetPIVCert(slot, cert)
-	if err != nil {
-		logging.Errorf("could not save cert to yubikey: %v", err)
+	if !bytes.Equal(pubBytes, pubCertBytes) {
+		return nil, fmt.Errorf("mismatch between key and certificate in Yubikey PIV %s Slot", slotName)
 	}
 
 	return &Yubikey{

@@ -197,13 +197,12 @@ func NewYubikeyKey(yubikeyReader *config.YubikeyReader, hier hierarchy.Hierarchy
 
 func YubikeyFromBytes(yubikeyReader *config.YubikeyReader, keyb, pemb []byte) (*Yubikey, error) {
 	var yubiData YubikeyData
-	var slot piv.Slot
 	err := json.Unmarshal(keyb, &yubiData)
 	if err != nil {
 		return nil, fmt.Errorf("yubikey: error unmarshalling yubikey: %v", err)
 	}
 
-	slot, _, err = resolvePIVSlot(yubiData.Slot)
+	slot, slotname, err := resolvePIVSlot(yubiData.Slot)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +215,25 @@ func YubikeyFromBytes(yubikeyReader *config.YubikeyReader, keyb, pemb []byte) (*
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("yubikey: failed to parse cert: %w", err)
+	}
+
+	_, pub, err := yubikeyReader.PrivateKey(slot)
+	if err != nil {
+		return nil, fmt.Errorf("error when loading YubiKey: %v", err)
+	}
+
+	keyPubKey, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return nil, fmt.Errorf("eror when marshalling public key of YubiKey key: %v", err)
+	}
+
+	certPubKey, err := x509.MarshalPKIXPublicKey(cert.PublicKey.(*rsa.PublicKey))
+	if err != nil {
+		return nil, fmt.Errorf("eror when marshalling public key of YubiKey certificate: %v", err)
+	}
+
+	if !bytes.Equal(certPubKey, keyPubKey) {
+		logging.Warn("saved certificate is not signed by key in YubiKey PIV %s Slot; wrong YubiKey?", slotname)
 	}
 
 	return &Yubikey{

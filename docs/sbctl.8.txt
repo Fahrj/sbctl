@@ -95,11 +95,11 @@ EFI signing commands
 
         *-p*, *--partial*;;
                 Enroll keys only for the hierarchy specified.
-                + 
+                +
                 Valid values are: db, KEK, PK.
 
         *--custom-bytes*;;
-                Enroll a custom bytefile provided by its path to the efivar specified by partial. 
+                Enroll a custom bytefile provided by its path to the efivar specified by partial.
 
         *-a*, *--append*;;
                 Instead of replacing the currently enrolled keys, append the provided one.
@@ -108,28 +108,28 @@ EFI signing commands
                 Set the keytype for all signing keys used by sbctl. This
                 includes PK, KEK and db keys.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
         *--pk-keytype*;;
                 Set the PK key type.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
         *--kek-keytype*;;
                 Set the KEK key type.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
         *--db-keytype*;;
                 Set the db key type.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
@@ -197,7 +197,7 @@ EFI signing commands
 
         *-p*, *--partial*;;
                Reset keys only for the hierarchy specified.
-               + 
+               +
                Valid values are: db, KEK, PK.
 
 **rotate-keys**::
@@ -210,7 +210,7 @@ EFI signing commands
 
         *-p*, *--partial*;;
                Rotate keys only for the hierarchy specified.
-               + 
+               +
                Valid values are: db, KEK, PK.
 
         *-k*, *--key-file*;;
@@ -223,28 +223,28 @@ EFI signing commands
                 Set the keytype for all signing keys used by sbctl. This
                 includes PK, KEK and db keys.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
         *--pk-keytype*;;
                 Set the PK key type.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
         *--kek-keytype*;;
                 Set the KEK key type.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
         *--db-keytype*;;
                 Set the db key type.
                 +
-                Default: file 
+                Default: file
                 +
                 Valid values are: file, tpm, yubikey
 
